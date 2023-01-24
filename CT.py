@@ -143,6 +143,8 @@ for i, b in enumerate(bvals):
                 trans_i = 1
             elif np.size(m.TnTrans) == 1:
                 trans_i = 0
+                print('no Tnuc')
+                continue
             elif np.size(m.TnTrans) == 0:
                 print('no Tnuc')
                 continue
