@@ -12,8 +12,8 @@ from cosmoTransitions import tunneling1D
 ############################################################################################
 
 # Potential parameters that we want to scan over
-bvals = np.linspace(-4, 0, num=50)
-cvals = np.linspace(0, 16, num=50)
+bvals = np.linspace(-4, 0, num=2)
+cvals = np.linspace(0, 16, num=2)
 
 # Fixed parameters
 Lamvals = 1. 
