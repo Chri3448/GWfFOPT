@@ -12,8 +12,8 @@ from cosmoTransitions import tunneling1D
 ############################################################################################
 
 # Potential parameters that we want to scan over
-bvals = np.linspace(-4, 0, num=2)
-cvals = np.linspace(0, 16, num=2)
+bvals = np.linspace(-4, 0, num=20)
+cvals = np.linspace(0, 16, num=20)
 
 # Fixed parameters
 Lamvals = 1. 
@@ -113,15 +113,16 @@ ksis = np.zeros((len(bvals), len(cvals)))
 
 # we want to capture the output since CT really spits out a lot of info
 
+param_instance = params.copy()
 # loop over b vals
 for i, b in enumerate(bvals):
     # idr why I did this but looks like just shifting to the center of the b bin for some reason
-    params['b'] = b + bvals[1] - bvals[0]
+    param_instance['b'] = b + bvals[1] - bvals[0]
     # loop over c vals
     # note that our thermal parameter matrices will now be filled in, e.g., like ksis[i, j] = ...
     for j, c in enumerate(cvals):
         # ditto
-        params['c'] = c + cvals[1] - cvals[0]
+        param_instance['c'] = c + cvals[1] - cvals[0]
 
         # test the parameters, could put any restrictions we have on the potential here
         if c/(b**2) < 1:
@@ -131,7 +132,7 @@ for i, b in enumerate(bvals):
         # print progress and turn off verbosity to spew out fewer details from CT
         print(i, j)
         try:
-            m = model1(**params)
+            m = model1(**param_instance)
             m.findAllTransitions(tunnelFromPhase_args={'verbose': False, 'fullTunneling_params': {'verbose': False}}); 
             m.prettyPrintTnTrans()
         except:
@@ -241,5 +242,5 @@ thermal_params = {
 results = (params, thermal_params)
 
 # write output to files should you so desires
-pickle.dump(results, open('./cosmotrans_out/' + strftime("%Y_%m_%d %H_%M_%S", gmtime()), 'wb'))
+pickle.dump(results, open('./cosmotrans_out/' + strftime("%Y_%m_%d %H_%M_%S", gmtime()) + '.pk', 'wb'))
 
