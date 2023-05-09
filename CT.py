@@ -3,20 +3,24 @@ import scipy as sp
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import interpolate
+from scipy import optimize
 import pickle
 from time import gmtime, strftime
-from cosmoTransitions import generic_potential
-from cosmoTransitions import tunneling1D
+import generic_potential_modified
+#from cosmoTransitions import tunneling1D
+import tunneling1D_modified as tunneling1D
 #from cosmoTransitions import pathDeformation as pd
 
 ############################################################################################
 
 # Potential parameters that we want to scan over
-bvals = np.linspace(-4, 0, num=20)
-cvals = np.linspace(0, 16, num=20)
+#bvals = np.linspace(-4, -0.01, num=20)
+#cvals = np.linspace(0, 16, num=20)
+bvals = np.linspace(-2.0001, -2, num=2)
+cvals = np.linspace(9.9999, 10, num=2)
 Lamvals = np.array([1.])
-c1vals = np.array([7, 6])
-fvals = np.array([1])
+c1vals = np.array([7.])
+fvals = np.linspace(-10,10,21)
 
 # Fixed parameters
 gstar = 100
@@ -30,9 +34,14 @@ params = {
     'c1': c1vals,
     'f':fvals
 }
+
+#controlls if any and how many b and c values should be retried around failed points
+recalc = True
+recalc_all = False
+recalc_resolution = 4
 ############################################################################################
 
-class model1(generic_potential.generic_potential):
+class model1(generic_potential_modified.generic_potential):
     """
     A sample model which makes use of the *generic_potential* class.
 
@@ -60,7 +69,7 @@ class model1(generic_potential.generic_potential):
         # It specifies the number of field-dimensions in the theory.
         self.Ndim = 1
         self.deriv_order = 2
-        self.Tmax = 10
+        self.Tmax = 2.
 
         # This next block sets all of the parameters that go into the potential
         # and the masses. This will obviously need to be changed for different
@@ -71,6 +80,24 @@ class model1(generic_potential.generic_potential):
         self.Lambda = Lambda
         self.c1 = c1
         self.f = f
+        
+    def approxZeroTMin(self):
+        """
+        Returns approximate values of the zero-temperature minima.
+        This should be overridden by subclasses, although it is not strictly
+        necessary if there is only one minimum at tree level. The precise values
+        of the minima will later be found using :func:`scipy.optimize.fmin`.
+        Returns
+        -------
+        minima : list
+            A list of points of the approximate minima.
+        """
+        # This should be overridden.
+        #CHRISTY NOTE: The origional code uses the default self.renormScaleSq = 1000.**2 as the approxZeroTMin. This is the default scale used in the MS-bar renormalization. Our minima are at much smaller scales, and so this function is being overwritten
+        #return [np.ones(self.Ndim)*self.renormScaleSq**.5]
+        
+        approxZeroGuess = 1.**2
+        return [np.ones(self.Ndim)*approxZeroGuess**.5]
 
     def Vtot(self, X, T, include_radiation=True):
         """
@@ -92,13 +119,14 @@ class model1(generic_potential.generic_potential):
         # JACK NOTE: Here I wanted to avoid checking parameter space that we knew was not going to produce a 1st order PT
 #         assert C < 0.5 + 9*B**2/(8*(1+4*A)), "no symmetry-breaking minimum"
 #         assert C/(B+1e-12)**2 > 1, f"no phase transition; A {A}, B {B}, C {C}"
-        w = (1-1/(1+np.exp(-self.c1*(phi-.5))))/(1+np.exp(-self.c1*(phi+.5)))
+        width = 1
+        w = (1-1/(1+np.exp(-self.c1*(phi-width/2))))/(1+np.exp(-self.c1*(phi+width/2)))
+        w_0 = (1-1/(1+np.exp(-self.c1*(0-width/2))))/(1+np.exp(-self.c1*(0+width/2)))
         #w=0
-        return ((-0.5 + self.c * T**2)*phi**2 + self.b * T*phi**3 + (0.25 + self.a)*phi**4 + self.f * T**4 * w)
+        return ((-0.5 + self.c * T**2)*phi**2 + self.b * T*phi**3 + (0.25 + self.a)*phi**4 + self.f * T**4 * (w-w_0))
 
 def get_profile(phi_vals, V_vals, guesses=(5, 0)):
     f = interpolate.UnivariateSpline(phi_vals, V_vals, s=0, k=4)
-#     print(f(5))
     df = f.derivative(1)
     d2f = f.derivative(2)
     inst = tunneling1D.SingleFieldInstanton(*guesses, f, df, d2f)
@@ -107,25 +135,26 @@ def get_profile(phi_vals, V_vals, guesses=(5, 0)):
     
     return profile, action
 
-def get_thermal_params(param_instance):
+def get_thermal_params(input_params):
     # Thermal parameters that we will derive (matrix with rows (first index) corresponding to b 
     # and columns (second index) corresponding to c
     # these values will be zero if CT chokes or the parameter space is invalid
-    Tnucs = np.zeros((len(bvals), len(cvals)))
-    betaHs = np.zeros((len(bvals), len(cvals)))
-    ksis = np.zeros((len(bvals), len(cvals)))
+    Tnucs = np.zeros((len(input_params['b']), len(input_params['c'])))
+    betaHs = np.zeros((len(input_params['b']), len(input_params['c'])))
+    ksis = np.zeros((len(input_params['b']), len(input_params['c'])))
 
     # we want to capture the output since CT really spits out a lot of info
 
+    param_instance = input_params.copy()
     # loop over b vals
-    for i, b in enumerate(bvals):
-        # idr why I did this but looks like just shifting to the center of the b bin for some reason
-        param_instance['b'] = b + bvals[1] - bvals[0]
+    for i, b in enumerate(input_params['b']):
+        # idk why I did this but looks like just shifting to the center of the b bin for some reason
+        param_instance['b'] = b
         # loop over c vals
         # note that our thermal parameter matrices will now be filled in, e.g., like ksis[i, j] = ...
-        for j, c in enumerate(cvals):
+        for j, c in enumerate(input_params['c']):
             # ditto
-            param_instance['c'] = c + cvals[1] - cvals[0]
+            param_instance['c'] = c
 
             # test the parameters, could put any restrictions we have on the potential here
             if c/(b**2) < 1:
@@ -136,18 +165,18 @@ def get_thermal_params(param_instance):
             print(i, j)
             try:
                 m = model1(**param_instance)
-                m.findAllTransitions(tunnelFromPhase_args={'verbose': False, 'fullTunneling_params': {'verbose': False}}); 
-                m.prettyPrintTnTrans()
+                m.findAllTransitions(tunnelFromPhase_args={'verbose': False, 'fullTunneling_params': {'verbose': True}}); 
+                #m.prettyPrintTnTrans()
             except:
                 print('error')
 
             # Store the nucleation temperature
             try:
                 if m.TnTrans == None:
-                    print('no Tnuc')
+                    print('no Tnuc calculated from CT')
                     continue
                 elif np.size(m.TnTrans) == 0:
-                    print('no Tnuc')
+                    print('no Tnuc calculated from CT')
                     continue
                 elif np.size(m.TnTrans) >= 1:
                     trans_i = -1
@@ -155,7 +184,7 @@ def get_thermal_params(param_instance):
                         if m.TnTrans[Ti]['low_vev'][0] - m.TnTrans[Ti]['high_vev'][0] > 0:
                             trans_i = Ti
                     if trans_i == -1:
-                        print('no Tnuc')
+                        print('no Tnuc because low_vev <= high_vev')
                         continue
                 print('trans index:', trans_i)
                 Tnuc = m.TnTrans[trans_i]['Tnuc']
@@ -175,14 +204,17 @@ def get_thermal_params(param_instance):
             # so now we have a FOPT with nucleation temp Tnuc, now we want to get a bit more info
             # we need to calculate the instanton for phi at various temperatures and take some derivatives using finite differences
 
+            high_vev = m.TnTrans[trans_i]['high_vev'][0]
+            low_vev = m.TnTrans[trans_i]['low_vev'][0]
             # we will calculate the potential at these field values (increase num to increase precision
-            phis = np.linspace(-5, m.TnTrans[trans_i]['low_vev']*2, num=20)
+            #phis = np.linspace(-5, m.TnTrans[trans_i]['low_vev']*2, num=20)
+            phis = np.linspace(high_vev - np.abs(high_vev), low_vev + np.abs(low_vev), num=1000)
             # we will calculate the instanton at each of these temperatures (around Tnuc)
-            Ts = np.linspace(Tnuc*0.999, Tnuc*1.001, num=20)
+            Ts = np.linspace(Tnuc*0.999, Tnuc*1.001, num=100)
             # these are our initial guesses for the field minima (which should not be substantially far from those at Tnuc)
             # the fudge factors 1.01 and 0.99 are to ensure that tunneling1D can find these minima (i.e. they bound the region
             # that tunneling1D will look for minima), without fudge factors numerical hijinks can occur
-            guesses = (m.TnTrans[trans_i]['low_vev'][0]*1.01, m.TnTrans[trans_i]['high_vev'][0]*0.99)
+            guesses = (low_vev + 0.01*np.abs(low_vev), high_vev - 0.01*np.abs(high_vev))
 
             # we will store all the details here
             profs, actions, good_Ts = [], [], []
@@ -190,7 +222,7 @@ def get_thermal_params(param_instance):
             # loop through the temperatures
             for T in Ts:
                 # get the potential at phis, T
-                V_vals = m.Vtot(phis, T)
+                V_vals = m.Vtot(np.array([phis]).T, T)
                 try:
                     # try to get the instanton profile and action
                     profile, action = get_profile(phis, V_vals, guesses=guesses)
@@ -207,7 +239,8 @@ def get_thermal_params(param_instance):
             try:
                 ST = interpolate.UnivariateSpline(good_Ts, np.array(actions)/np.array(good_Ts), s=0, k=4)
                 dSTdT = ST.derivative(1)
-                betaH = dSTdT(Tnuc)/Tnuc
+                #betaH = dSTdT(Tnuc)/Tnuc
+                betaH = dSTdT(Tnuc)*Tnuc
                 betaHs[i, j] = betaH
             except:
                 print('no betas')
@@ -228,33 +261,71 @@ def get_thermal_params(param_instance):
                 delV = interpolate.UnivariateSpline(good_Ts, deltaVs, s=0, k=4)
                 ddelVdT = delV.derivative(1)
 
-                rho_n = np.pi**2 / 30 * gstar * Tnuc**4
+                #rho_n = np.pi**2 / 30 * gstar * Tnuc**4
+                rho_n = np.pi**2 * 10 * Tnuc**4 / 3
                 ksi = 1 / rho_n * (delV(Tnuc) - Tnuc * ddelVdT(Tnuc))
 
                 ksis[i, j] = ksi
             except:
                 print('no ksi')
 
-            print('done with', i * len(bvals) + c, '/', len(bvals) * len(cvals))
-            
+            print('done with', i * len(input_params['b']) + c, '/', len(input_params['b']) * len(input_params['c']))
+    
     return Tnucs, betaHs, ksis
 
-param_instance = params.copy()
+#calculate thermal params
+input_params = params.copy()
 thermal_params = []
 for Lambda in Lamvals:
     c1list = []
     for c1 in c1vals:
         flist = []
         for f in fvals:
-            param_instance['Lamda'] = Lambda
-            param_instance['c1'] = c1
-            param_instance['f'] = f
-            Tnucs, betaHs, ksis = get_thermal_params(param_instance)
+            input_params['Lamda'] = Lambda
+            input_params['c1'] = c1
+            input_params['f'] = f
+            Tnucs, betaHs, ksis = get_thermal_params(input_params)
             flist.append({'Tnucs': Tnucs, 'betaHs': betaHs, 'ksis': ksis})
         c1list.append(flist)
     thermal_params.append(c1list)
+thermal_params = np.array(thermal_params)
+
+
+#recalculate thermal params at higher resolution for points where first calculation failed
+if recalc:
+    for Li, Lambda in enumerate(Lamvals):
+        for c1i, c1 in enumerate(c1vals):
+            for fi, f in enumerate(fvals):
+                for bi, b in enumerate(bvals):
+                    for ci, c in enumerate(cvals):
+                        if np.any((thermal_params[Li,c1i,fi]['Tnucs'][bi,ci]==0, 
+                                   thermal_params[Li,c1i,fi]['betaHs'][bi,ci]==0, 
+                                   thermal_params[Li,c1i,fi]['ksis'][bi,ci]==0)) and c/(b**2) >= 1 or recalc_all:
+                            input_params['Lamda'] = Lambda
+                            input_params['c1'] = c1
+                            input_params['f'] = f
+                            b_step = bvals[1]-bvals[0]
+                            c_step = cvals[1]-cvals[0]
+                            input_params['b'] = np.linspace(b - b_step/2, b + b_step/2, recalc_resolution)
+                            input_params['c'] = np.linspace(c - c_step/2, c + c_step/2, recalc_resolution)
+                            Tnucs, betaHs, ksis = get_thermal_params(input_params)
+                            Tnucs_mean = Tnucs[Tnucs != 0].mean()
+                            betaHs_mean = betaHs[betaHs != 0].mean()
+                            ksis_mean = ksis[ksis != 0].mean()
+                            if Tnucs_mean == np.nan:
+                                Tnucs_mean = 0
+                            if betaHs_mean == np.nan:
+                                betaHs_mean = 0
+                            if ksis_mean == np.nan:
+                                ksis_mean = 0
+                            thermal_params[Li,c1i,fi]['Tnucs'][bi,ci] = Tnucs_mean
+                            thermal_params[Li,c1i,fi]['betaHs'][bi,ci] = betaHs_mean
+                            thermal_params[Li,c1i,fi]['ksis'][bi,ci] = ksis_mean
+
     
 # output file
-results = (params, np.array(thermal_params))
+print('#saving output file#')
+results = (params, thermal_params)
+print(thermal_params)
 pickle.dump(results, open('./cosmotrans_out/' + strftime("%Y_%m_%d %H_%M_%S", gmtime()) + '.pk', 'wb'))
 
