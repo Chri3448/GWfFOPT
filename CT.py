@@ -125,6 +125,20 @@ class model1(generic_potential_modified.generic_potential):
         #w=0
         return ((-0.5 + self.c * T**2)*phi**2 + self.b * T*phi**3 + (0.25 + self.a)*phi**4 + self.f * T**4 * (w-w_0))
 
+# scale-free potential without a window function:
+def get_f_max_and_width(b, c):
+    T_c = 1/np.sqrt(2*(c - b**2))
+    phi_minus = (-3*b*T_c - np.sqrt(9*b**2*T_c**2 + 4*(1 - 2*c*T_c**2)))/2
+    Vtot = (-.5 + c*T_c**2)*phi_minus**2 + b*T_c*phi_minus**3 + .25*phi_minus**4
+    f_max = (Vtot/T_c**4)/10
+    width = 2*phi_minus
+    return f_max, width
+
+for b in bvals:
+    for c in cvals:
+        print(get_f_max_and_width(b, c))
+    
+'''
 def get_profile(phi_vals, V_vals, guesses=(5, 0)):
     f = interpolate.UnivariateSpline(phi_vals, V_vals, s=0, k=4)
     df = f.derivative(1)
@@ -328,4 +342,4 @@ print('#saving output file#')
 results = (params, thermal_params)
 print(thermal_params)
 pickle.dump(results, open('./cosmotrans_out/' + strftime("%Y_%m_%d %H_%M_%S", gmtime()) + '.pk', 'wb'))
-
+'''
